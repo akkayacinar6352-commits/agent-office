@@ -162,6 +162,8 @@ export class PtyHost {
   constructor(
     private dataDir: string,
     private onLost: () => void,
+    /** How long to keep saying hello to a host that's there but slow to answer (a busy start). */
+    private patienceMs = 15_000,
   ) {
     this.infoPath = path.join(dataDir, 'pty-host.json');
     this.socketPath = hostSocketPath(dataDir);
@@ -178,6 +180,17 @@ export class PtyHost {
   async connect(): Promise<boolean> {
     try {
       let found = await this.hello();
+      if (!found && (await this.listening())) {
+        // A host is there but didn't answer in time (every floor's office starting at once on a busy
+        // machine). Starting another would write a new token over the one it knows and lose its
+        // terminals for good, and the new host couldn't listen anyway: keep asking it.
+        const deadline = Date.now() + this.patienceMs;
+        while (!found && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 250));
+          found = await this.hello();
+        }
+        if (!found) return false;
+      }
       if (found && found.version !== PTY_PROTOCOL) {
         // A host from an older build: its terminals go (workers resume their conversations).
         await new Promise<void>((resolve) => {
@@ -329,6 +342,21 @@ export class PtyHost {
       readMessages(sock, (msg: FromHost) => {
         if (msg.t === 'ready') done({ sock, version: msg.version, sessions: Array.isArray(msg.sessions) ? msg.sessions : [] });
       });
+    });
+  }
+
+  /** Whether anything is listening where the host would: a host, even one that isn't answering. */
+  private listening(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const sock = net.createConnection(this.socketPath);
+      const done = (v: boolean) => {
+        clearTimeout(timer);
+        sock.destroy();
+        resolve(v);
+      };
+      const timer = setTimeout(() => done(false), 3000);
+      sock.on('connect', () => done(true));
+      sock.on('error', () => done(false));
     });
   }
 
