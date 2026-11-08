@@ -20,6 +20,11 @@ const HOOK_TRIES = 6;
 /** First-run screens Claude shows before it can take a prompt. */
 const SETUP_PROMPT = /trust this folder|Do you trust the files|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
 const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Invalid API key|Please run \/login/i;
+/** The plan's usage ran out ("Claude usage limit reached… resets 3pm", "5-hour limit reached ∙ resets 3pm"). */
+const USAGE_LIMIT = /usage limit reached|hit your (?:usage )?limit|limit reached\s*[∙·•|-]\s*resets/i;
+const LIMIT_RESETS = /resets?\s+(?:at\s+)?([^\n.()]+?(?:\([^)\n]*\))?)\s*(?:$|[.\n])/im;
+/** A limit message only counts while it's near the bottom: after a resume it scrolls away. */
+const LIMIT_TAIL_LINES = 12;
 
 interface ClaudeSetup {
   /** Its --settings: the office's hooks. */
@@ -187,7 +192,15 @@ function claudeHook(h: WorkerHandle, event: string, payload: any): boolean {
 export function claudeBlocked(text: string, early: boolean): string | undefined {
   if (NOT_LOGGED_IN.test(text)) return "Claude isn't signed in on this machine — open the terminal and type /login";
   if (SETUP_PROMPT.test(text) && early) return 'Waiting on a setup prompt (trust / login) — open the terminal';
-  return undefined;
+  return claudeLimited(text);
+}
+
+/** "Usage limit reached — resets 3pm" while the bottom of the screen says the plan ran out, else undefined. */
+export function claudeLimited(text: string): string | undefined {
+  const tail = text.split('\n').filter((l) => l.trim()).slice(-LIMIT_TAIL_LINES).join('\n');
+  if (!USAGE_LIMIT.test(tail)) return undefined;
+  const resets = LIMIT_RESETS.exec(tail)?.[1]?.trim();
+  return resets ? `Usage limit reached — resets ${resets}` : 'Usage limit reached';
 }
 
 export const claude: ProviderAdapter<undefined, ClaudeSetup> = {

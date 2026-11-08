@@ -173,7 +173,7 @@ export class Webhook {
         text: msg.detail ? `${msg.title}\n${msg.detail}` : msg.title,
         event: msg.kind,
         project: this.project(w?.id),
-        worker: w && { id: w.id, name: w.name, desk: w.deskId, status: w.status, task: w.task?.name, branch: w.worktree?.branch },
+        worker: w && { id: w.id, name: w.name, desk: w.deskId, status: w.status, task: w.task?.name, branch: w.worktree?.branch, activity: w.activity },
       };
     }
     let error: string | undefined;
