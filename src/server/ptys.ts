@@ -164,10 +164,7 @@ export class PtyHost {
     private onLost: () => void,
   ) {
     this.infoPath = path.join(dataDir, 'pty-host.json');
-    // Unix socket paths are capped at ~104 bytes; a deep project falls back to the temp dir.
-    const inData = path.join(dataDir, 'pty.sock');
-    const hash = createHash('sha256').update(dataDir).digest('hex').slice(0, 16);
-    this.socketPath = Buffer.byteLength(inData) < 100 ? inData : path.join(os.tmpdir(), `agent-office-${hash}.sock`);
+    this.socketPath = hostSocketPath(dataDir);
   }
 
   get hosted(): boolean {
@@ -179,7 +176,6 @@ export class PtyHost {
    * host to be had: terminals then run in-process.
    */
   async connect(): Promise<boolean> {
-    if (process.platform === 'win32') return false;
     try {
       let found = await this.hello();
       if (found && found.version !== PTY_PROTOCOL) {
@@ -348,6 +344,8 @@ export class PtyHost {
     try {
       const child = spawnProcess(process.execPath, [...flags, script, this.socketPath, this.infoPath], {
         detached: true,
+        // On Windows a detached process gets a console window of its own; keep it hidden.
+        windowsHide: true,
         stdio: ['ignore', 'ignore', log],
         // Where the office's own code is, so a loader flag (`--import tsx`) resolves from its
         // node_modules and not from whichever project this floor is.
@@ -358,6 +356,17 @@ export class PtyHost {
       closeSync(log);
     }
   }
+}
+
+/**
+ * Where the host listens. Windows has no Unix sockets: a named pipe, unique to the data dir.
+ * Unix socket paths are capped at ~104 bytes; a deep project falls back to the temp dir.
+ */
+export function hostSocketPath(dataDir: string, platform: NodeJS.Platform = process.platform): string {
+  const hash = createHash('sha256').update(dataDir).digest('hex').slice(0, 16);
+  if (platform === 'win32') return `\\\\.\\pipe\\agent-office-${hash}`;
+  const inData = path.join(dataDir, 'pty.sock');
+  return Buffer.byteLength(inData) < 100 ? inData : path.join(os.tmpdir(), `agent-office-${hash}.sock`);
 }
 
 function frame(msg: ToHost): string {

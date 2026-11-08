@@ -1,7 +1,7 @@
 /**
  * The workers' terminal host: owns every worker's PTY so a restarting office doesn't take Claude
  * down with it. The office starts it detached (see ptys.ts) and talks to it over a Unix socket
- * that only its own token opens. It keeps a headless copy of each screen, so the next office
+ * (a named pipe on Windows) that only its own token opens. It keeps a headless copy of each screen, so the next office
  * gets the scrollback back, and ends everything once no office has come back for a while.
  *
  *   node ptyhost.js <socket> <info.json>
@@ -233,12 +233,15 @@ const taken = await new Promise<boolean>((resolve) => {
   probe.on('error', () => resolve(false));
 });
 if (taken) process.exit(0);
-try {
-  unlinkSync(socketPath); // left behind by a host that died
-} catch {
-  // none
+// A named pipe (Windows) goes away with its server: nothing to clean up or chmod.
+if (process.platform !== 'win32') {
+  try {
+    unlinkSync(socketPath); // left behind by a host that died
+  } catch {
+    // none
+  }
+  process.umask(0o077); // the socket is created owner-only
 }
-process.umask(0o077); // the socket is created owner-only
 server.listen(socketPath);
 idleTimer = setTimeout(() => {
   if (!office && !live()) process.exit(0);
