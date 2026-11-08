@@ -306,8 +306,12 @@ export class Ledger {
     return this.opts.budget !== undefined && (this.days[localDay()]?.cost ?? 0) >= this.opts.budget;
   }
 
+  /** The office is on a break (its plan's usage ran out, see hooks/holding.ts): why, until it's over. */
+  onBreak?: string;
+
   /** Why a new agent can't be hired right now, when it can't. */
   get hiringPaused(): string | undefined {
+    if (this.onBreak) return this.onBreak;
     if (!this.opts.pauseHiring || !this.overBudget) return undefined;
     return `Today's ${fmtUsd(this.opts.budget!)} budget is spent — no new hires until tomorrow`;
   }
